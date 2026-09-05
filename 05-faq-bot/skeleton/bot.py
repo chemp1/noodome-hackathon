@@ -16,7 +16,9 @@
 """
 
 import asyncio
+import csv
 import os
+from datetime import datetime
 from pathlib import Path
 
 import anthropic
@@ -33,9 +35,24 @@ HERE = Path(__file__).parent
 FAQ_PATH = HERE.parent / "faq.md"
 PROMPT_PATH = HERE / "system-prompt.txt"
 
+LOG_PATH = HERE / "questions-log.csv"
+
 ESCALATE_MARKER = "ESCALATE:"
 
 claude = anthropic.Anthropic()  # читает ANTHROPIC_API_KEY из окружения
+
+
+def log_question(question: str, answer: str, escalated: bool) -> None:
+    """Журнал вопросов — сырьё для аналитики (уровень 2 брифа)."""
+    is_new = not LOG_PATH.exists()
+    with LOG_PATH.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, delimiter=";")
+        if is_new:
+            writer.writerow(["время", "вопрос", "эскалация", "ответ"])
+        writer.writerow(
+            [datetime.now().isoformat(timespec="seconds"), question,
+             "да" if escalated else "нет", answer]
+        )
 
 
 def ask_claude(question: str) -> str:
@@ -63,6 +80,7 @@ def ask_claude(question: str) -> str:
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     question = update.message.text
     answer = await asyncio.to_thread(ask_claude, question)
+    log_question(question, answer, escalated=answer.startswith(ESCALATE_MARKER))
 
     if answer.startswith(ESCALATE_MARKER):
         await update.message.reply_text(
